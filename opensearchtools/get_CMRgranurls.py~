@@ -1,0 +1,221 @@
+
+import datetime
+import pdb
+from cmr import CollectionQuery, GranuleQuery, ToolQuery, ServiceQuery, VariableQuery
+import time
+
+
+
+def get_CMRgranurls(ShortName,VersionID,start_time,end_time,lon=None,lat=None,rad_km=None):
+    """
+       The program returns a dictionary with lists of data, opendap,  and S3 urls.
+INPUTS
+    "ShortName" the data set shortname
+ 
+    "versionID" the version ID of the product
+
+    "start_time"  start time in utc.  The following is appended to the date: "T00:00:00Z.
+
+    "end_time"  start time in utc The following is appended to the date: "T00:00:00Z, thus the end date is not actualy included in the results.
+
+    "lon", "lat", "rad_km" (optional) will search withing a given radius near a given location The input radius is converted to a bounding box.  If a radius is not given, it will find all of the granules that over lap with the point.  If "lon", "lat", and "rad_km" it will not include a spatial search.  If only "lon" and "lat" are given, it will assume they give the lon and lat of the lower left and upper right corners of the bounding box.
+
+OUTPUTS
+
+    "urls" A dictionary with urls for the data, opendap, and s3 urls.  It also returns the start_time and end_time that were inputs into the program.
+     
+EXAMPLE
+
+    Find all of the AIRX2RET granules within 30 km of  New Orleans
+
+    > from opensearchtools.get_MOSurls import get_MOSurls
+    > urls = get_CMRgranurls('AIRX2RET.006','2002.09.01','2016.01.01',lon=-90.0667,lat=29.95, rad_km=30.0)
+
+    If a radius is not specified it will return all of the granules on the days in the search period.  For     example, following will return 241 granules.  The 1 extra if from 2002.08.31 part of which is on 2002.09.01
+
+    > 
+    > urls = get_MOSurls('AIRX2RET.006','2002.09.01','2002.09.02')
+
+HISTORY
+
+    Created by Thomas Hearty,  March 14, 2016 
+
+NOTES
+     
+Return a list of data set urls given the above input parameters.  It will convert the radius to bounding box centered on the given longitude and latitude
+
+I will follow Christines instructions for this.  She gave an example using opendap but I will make it work for the data urls instead and later convert the data urls to opendap urls.  The OPeNDAP urls are not in the OpenSearch results because doing so breaks the MERRA subsetter.  Probably because it doesn't know how to do this.
+
+Here is Christine's sample code
+
+from lxml import etree
+import urllib2
+
+# download the search output
+xml_str = urllib2.urlopen("http://mirador.gsfc.nasa.gov/cgi-bin/mirador/granlist.pl?searchType=Nominal&format=atom&startTime=2002-09-01T00:00:00Z&endTime=2002-09-30T00:00:00Z&osLocation=-39.377320,72.311218,-37.574658,72.844513&maxgranules=100&dataSet=AIRX2RET.006",).read()
+
+# parse the xml
+xml = etree.fromstring(xml_str)
+
+# This XML has namespaces.
+namespaces = {"atom": "http://www.w3.org/2005/Atom"}
+
+# This xpath will find all the link nodes whoe 'rel' attribute is http://esipfed.org/ns/fedsearch/1.0/opendap#
+xpath = '//atom:link[@rel="http://esipfed.org/ns/fedsearch/1.0/opendap#"]'
+
+# run the xpath
+results = xml.xpath(xpath, namespaces=namespaces)
+
+# get the href attribute values out
+links = [element.get('href') for element in results]
+
+# print them out
+for link in links:
+    print link
+
+    """
+
+    start_time = start_time.replace('.','-')
+    end_time = end_time.replace('.','-')
+
+    if len(start_time) == 10:
+        start_time = start_time+"T00:00:00Z"
+        end_time = end_time+"T00:00:00Z"
+
+    # create a list of start and end times strings
+    start_dt = datetime.datetime.fromtimestamp(time.mktime(time.strptime(start_time,"%Y-%m-%dT%H:%M:%SZ")))
+    end_dt = datetime.datetime.fromtimestamp(time.mktime(time.strptime(end_time,"%Y-%m-%dT%H:%M:%SZ")))
+
+
+
+    deltatime = end_dt - start_dt
+
+    start_times = [start_time]
+    end_times = []
+
+    timeincrement = datetime.timedelta(7)
+
+    while deltatime > timeincrement:
+        old_start_dt = start_dt
+        start_dt = old_start_dt+timeincrement
+        end_times.append(start_dt.strftime("%Y-%m-%dT%H:%M:%SZ"))
+        start_times.append(end_times[-1])
+        deltatime = end_dt - start_dt
+    end_times.append(end_time)
+
+ 
+    s3_urls = []
+    opendap_urls = []
+    data_urls = []
+
+
+    for start_time_seg,end_time_seg in zip(start_times,end_times):
+
+        api = GranuleQuery()
+
+        # there are three types of searches that I can do.  1) global, 2) bounding box, 3) point radius
+        if rad_km is None and lon is None and lat is None: # this is a global search
+            granules = api.short_name(ShortName).version(VersionID).temporal(start_time_seg,end_time_seg).get(1000000) 
+        elif rad_km is None and len(lon) == 2 and len(lat) == 2:
+            granules = api.short_name(ShortName).version(VersionID).temporal(start_time_seg,end_time_seg).bounding_box(lon[0],lat[0],lon[1],lat[1]).get(1000000)
+        else: # for now I will assume it is a circle
+            granules = api.short_name(ShortName).version(VersionID).temporal(start_time_seg,end_time_seg).circle(lon,lat,rad_km*1000.).get(1000000)
+
+        
+        for granule in granules:
+            for link in granule.get('links',[]):
+                if 'rel' in link and 'href' in link and 'inherited' not in link:
+                    if 'http://esipfed.org/ns/fedsearch/1.1/s3#' in link['rel']: # It's an s3 url
+                        s3_urls.append(link['href'])
+                    if 'http://esipfed.org/ns/fedsearch/1.1/service#' in link['rel'] and 'opendap' in link['href']: # It's an opendap link
+                        opendap_urls.append(link['href'])
+                    if 'http://esipfed.org/ns/fedsearch/1.1/data#' in link['rel']: # It's a data url
+                        data_urls.append(link['href'])
+
+        
+        # Get just the URLs (identified by 'via S3' in the link title)
+        ###s3_urls_seg = [link['href'] for link in gran_links if 'http://esipfed.org/ns/fedsearch/1.1/s3#' in link['rel']]
+
+        # Get just the URLs (identified by 'OPENDAP location for the granule' in the link title)
+        ###opendap_urls_seg = [link['href'] for link in gran_links if 'OPENDAP location for the granule' in link['title']]
+
+        # Finally, get just the URLs (identified by 'Download' in the link title)
+        ###data_urls_seg = [link['href'] for link in gran_links if 'http://esipfed.org/ns/fedsearch/1.1/data#' in link['rel']]
+
+        
+            
+    # we did this already, but lets do it again because the same file can appear in multiple segments.
+    s3_urls = list(set(s3_urls)) # makes them unique and sorts them
+    opendap_urls = list(set(opendap_urls)) # makes them unique and sorts them
+    data_urls = list(set(data_urls)) # makes them unique and sorts them
+
+
+    s3_urls.sort() # this will probably put them in chronological order but it must be verified.
+    opendap_urls.sort() # this will probably put them in chronological order but it must be verified.
+    data_urls.sort() # this will probably put them in chronological order but it must be verified.
+
+    urls = {'s3':s3_urls,'opendap':opendap_urls,'data':data_urls}
+    
+    return urls,start_time,end_time
+
+
+if __name__ == "__main__":
+
+    '''
+    This is just some code to test get_CMROSurls.py.
+https://airsl2.gesdisc.eosdis.nasa.gov/data/Aqua_AIRS_Level2/AIRX2RET.006/2002/249/AIRS.2002.09.06.240.L2.RetStd.v6.0.7.0.G13202075916.hdf
+
+    '''
+
+
+    # NOAA Summit Station
+    ###NOAALon = -38.48 
+    ###NOAALat = 72.58
+
+    # GCNet Summit Station
+    ###GCNetLon = -38.50
+    ###GCNetLat = 72.5794
+
+    # Average Summit location
+    ###lon=np.mean([NOAALon,GCNetLon])
+    ###lat=np.mean([NOAALat,GCNetLat])
+
+
+    
+
+    
+    print('Getting all AIRS L2 Granules')
+    print(datetime.datetime.now())
+    urls,start_time,end_time = get_CMRgranurls('AIRIBRAD','005','2002.08.30','2023.11.20')
+    print(datetime.datetime.now())
+    print('Getting all AIRS L2 Granules within 100 km of New Orleans')
+    print(datetime.datetime.now())
+    circle_urls,start_time,end_time = get_CMRgranurls('AIRIBRAD','005','2002.08.30','2023.11.20',lon=-90.07,lat=29.95,rad_km=100)
+    print(datetime.datetime.now())
+    print('Getting all AIRS L2 Granules that overlap with NINO4 region')
+    print(datetime.datetime.now())
+    bb_urls,start_time,end_time = get_CMRgranurls('AIRIBRAD','005','2002.08.30','2023.11.20',lon=[160,-150],lat=[-5,5]) # Nino 4 region crosses the dateline
+    print(datetime.datetime.now())
+
+    s3basenames = [os.path.basename(name) for name in urls['s3']]
+    opendapbasenames = [os.path.basename(name) for name in urls['opendap']]
+    databasenames = [os.path.basename(name) for name in urls['data']]
+
+    
+    pdb.set_trace()
+
+    outfile = 'CMROSlist.txt'
+    output = open(outfile,'w')
+
+    for url in urls:
+        output.write(url+'\n')
+    output.close()
+
+
+    xmlfile = 'CMROS.xml'
+    output = open(xmlfile,'w')
+    for line in xml_str:
+        output.write(line)
+    output.close()
+    
+    urls,start_time,end_time = get_CMRgranurls('OCO2_GEOS_L3CO2_DAY','10r','2002.08.30','2023.11.20')

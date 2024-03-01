@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns:os="http://a9.com/-/spec/opensearch/1.1/" xmlns:georss="http://www.georss.org/georss" xmlns="http://www.w3.org/2005/Atom" xmlns:dc="http://purl.org/dc/terms/" xmlns:echo="http://www.echo.nasa.gov/esip" xmlns:esipdiscovery="http://commons.esipfed.org/ns/discovery/1.2/" xmlns:gml="http://www.opengis.net/gml" xmlns:time="http://a9.com/-/opensearch/extensions/time/1.0/" xmlns:eo="http://a9.com/-/opensearch/extensions/eo/1.0/" esipdiscovery:version="1.2">
+  <updated>2017-10-03T21:50:42.720Z</updated>
+  <id>https://cmr.earthdata.nasa.gov/opensearch/granules.atom</id>
+  <author>
+    <name>CMR</name>
+    <email>echodev@echo.nasa.gov</email>
+  </author>
+  <subtitle type="text">Your search yielded zero matches</subtitle>
+  <link href="http://cmr.earthdata.nasa.gov/opensearch/granules.atom?shortName=AIRS2RET&amp;versionId=006&amp;startTime=2017-08-27T00:00:00Z&amp;endTime=2017-08-31T00:00:00Z&amp;numberOfResults=2000&amp;cursor=1&amp;commit=Search" hreflang="en-US" type="application/atom+xml" rel="self"/>
+  <link href="http://cmr.earthdata.nasa.gov/opensearch/granules.atom?shortName=AIRS2RET&amp;versionId=006&amp;startTime=2017-08-27T00:00:00Z&amp;endTime=2017-08-31T00:00:00Z&amp;numberOfResults=2000&amp;commit=Search&amp;cursor=1" hreflang="en-US" type="application/atom+xml" rel="last"/>
+  <link href="http://cmr.earthdata.nasa.gov/opensearch/granules.atom?shortName=AIRS2RET&amp;versionId=006&amp;startTime=2017-08-27T00:00:00Z&amp;endTime=2017-08-31T00:00:00Z&amp;numberOfResults=2000&amp;commit=Search&amp;cursor=1" hreflang="en-US" type="application/atom+xml" rel="first"/>
+  <link href="https://wiki.earthdata.nasa.gov/display/echo/Open+Search+API+release+information" hreflang="en-US" type="text/html" rel="describedBy" title="Release Notes"/>
+  <os:Query xmlns:geo="http://a9.com/-/opensearch/extensions/geo/1.0/" role="request" echo:shortName="AIRS2RET" echo:versionId="006" time:start="2017-08-27T00:00:00Z" time:end="2017-08-31T00:00:00Z"/>
+  <os:totalResults>0</os:totalResults>
+  <title type="text">ECHO granule metadata</title>
+</feed>
