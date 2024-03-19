@@ -1,0 +1,7 @@
+def txt2list(infile,outlist):
+    '''
+A simple program to write a list of strings to a text file
+    '''
+    f = open(infile,'r')
+    outlist = f.readlines()
+    f.close()
