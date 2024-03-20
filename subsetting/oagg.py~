@@ -1,0 +1,196 @@
+
+
+
+from pydap.client import open_url
+from pydap.cas.urs import setup_session
+import netrc
+import geoutils
+import numpy as np
+#from opensearchtools.get_MOSurls import get_MOSurls
+from opensearchtools.get_CMRgranurls import get_CMRgranurls
+###import pdb
+
+import myio
+#import realobs 
+import pdb
+
+def oagg(datasetidsandvariables,begin_date,end_date,lon=None,lat=None,radius_km=None,lonstring='Longitude',latstring='Latitude'):
+    """
+       OPeNDAP Aggregrator.  This will aggregate a subset of data from multiple swath files over a specified time period.
+
+       INPUTS (REQUIRED):
+
+       datasetidsandvariable: A dictionary of data set ids required by OpenSearch (e.g, 'AIRX2RET.006', 'AIRX2SUP.006', 'AIRI2CCF.006') each with a corresponding list of variables.
+       
+       begin_date: e.g., '2015.09.01' or '2015.09.01T00:00:00Z'
+       end_date: e.g, '2015.09.02' if hours minutes and seconds are not given 'T00:00:00Z' is appended.
+
+       INPUTS (OPTIONAL):
+
+       variables: is this is not given it will aggregate all of the variables.   
+
+       lan, lat, radius_km: if these are not given, this it will aggregate everything
+
+       lonstring,latstring:  if the data files have a nonstandard Longitude and Latitude name, I must specify it. 
+       
+    """
+
+    datasetids = datasetidsandvariables.keys()
+
+    aggdata = {}
+
+
+
+
+
+
+    for datasetid in datasetids:
+        print(datasetid)
+        shortname,version = datasetid.split('.',1)
+        ###urls,xml_str,start_time,end_time = get_CMROSurls(shortname,version,begin_date,end_date,lon=lon,lat=lat,rad_km=radius_km)
+        urls,start_time,end_time = get_CMRgranurls(shortname,version,begin_date,end_date,lon=lon,lat=lat,rad_km=radius_km)
+        opendap_urls = urls['opendap']
+        
+
+        tmpdataset = {}   
+        for variable in datasetidsandvariables[datasetid]:
+            tmpdataset[variable]=np.array([]) # initiallize the numpy arrays
+        # initionalize a few more variables for a spatial subset
+        if lon != None:
+            # I will also add the distance from the center point
+            #tmpdataset['pointLon'] = np.array(lon) 
+            #tmpdataset['pointLat'] = np.array(lat) 
+            tmpdataset['distance_km'] = np.array([]) 
+            #tmpdataset['radius_km'] = np.array(radius_km) 
+
+
+        for i,opendap_url in enumerate(opendap_urls):
+            print(i+1,'of',len(opendap_urls),opendap_url) # comment out later.  This is for diagnostic purposes to see the speed.
+
+            netrc.netrc().authenticators('urs.earthdata.nasa.gov')
+            username = netrc.netrc().authenticators('urs.earthdata.nasa.gov')[0]
+            password = netrc.netrc().authenticators('urs.earthdata.nasa.gov')[2]
+            session = setup_session(username, password,check_url=opendap_url) # set up the opendap session
+            dataset = open_url(opendap_url,session=session)
+            # if radius_km == None keep the original shape and include everything
+            ###pdb.set_trace()
+            if lon == None:
+                for variable in datasetidsandvariables[datasetid]:
+                    print(variable)
+                    tmpdataset[variable] = np.append(tmpdataset[variable],dataset[variable.replace('/','_')])
+            else:
+                # find the distance each point is from the center point
+                datasetlon = dataset[lonstring.replace('/','_')]
+                datasetlat = dataset[latstring.replace('/','_')]
+                pdb.set_trace()
+                dataset_dist = geoutils.dist_km(lon,lat,datasetlon[:],datasetlat[:])
+                # If user did not specify a radius just use the nearest point
+                if radius_km == None:
+                    radius_km = dataset_dist.min() 
+                if dataset_dist.min() <= radius_km:
+                    mask = dataset_dist <= radius_km # create the mask
+                    #save the distance point is from the requested point
+                    tmpdataset['distance_km']=np.append(tmpdataset['distance_km'],dataset_dist[mask])
+                    for variable in datasetidsandvariables[datasetid]:
+                        print(variable)
+                        ###if variable == 'bndry_lyr_top_QC':
+                        ###    pdb.set_trace()
+                        tmpvar = np.ma.filled(dataset[variable.replace('/','_')]).copy()
+
+                        if tmpvar.shape == dataset_dist.shape:
+                            tmpdataset[variable] = np.append(tmpdataset[variable],tmpvar[mask])   
+                        else:
+                           if len(tmpvar.shape) > len(dataset_dist.shape):
+                               # it has at least 1 extra dimension so I will replicate the mask.  the coordinates are first
+                               extradims = tmpvar.shape[len(dataset_dist.shape):]
+                               n_extradims = len(extradims)
+                               print(variable + ' has %d extra dimensions' % n_extradims)
+                               ivalid = np.where(mask == True) 
+                               ###pdb.set_trace()
+                               if len(ivalid) == 2: # I could remove this if by using ravel
+                                   for x,y in zip(ivalid[0],ivalid[1]):
+                                       if len(tmpdataset[variable]) == 0:
+                                           tmpdataset[variable] = tmpvar[x,y,:]
+                                       else:
+                                           tmpdataset[variable] = np.vstack((tmpdataset[variable],tmpvar[x,y,:]))
+                               else: # it must be a 1D coordinate vector 
+                                   for x in ivalid[0]:
+                                       if len(tmpdataset[variable]) == 0:
+                                           tmpdataset[variable] = tmpvar[x,:]
+                                       else:
+                                           tmpdataset[variable] = np.vstack((tmpdataset[variable],tmpvar[x,y,:]))
+                               # this is some foolishness that I don't have to do.
+                               #mask2 = np.tile(mask.reshape(mask.shape+(1,)*n_extradims),(1,)*mask.ndim+extradims)
+                               #tmpvar2 = np.tile(tmpvar,(len(dataset_dist[mask]),1))
+                           else:
+                               #It's a different size array so just replicate it for every valid footprint
+                               tmpvar2 = np.tile(tmpvar,(len(dataset_dist[mask]),1))
+                               if len(tmpdataset[variable]) == 0:
+                                   tmpdataset[variable] = tmpvar2
+                               else:
+                                   tmpdataset[variable] = np.vstack((tmpdataset[variable],tmpvar2))
+
+
+                    ''' I will comment this method out for now to see if I can read it directly using opendap without downloading the file.
+                    subseturl = opendap_url+odsuffix(datasetidsandvariables[datasetid],filetype='dap.nc4')
+                    subsetfile = '/tmp/'+os.path.basename(opendap_url)+'.nc4'
+                    urllib.urlretrieve(subseturl,subsetfile)
+                    datasubset = Dataset(subsetfile,'r')
+                    for index,variable in enumerate(datasetidsandvariables[datasetid]):
+                        tmpvar = np.ma.filled(datasubset.variables[variable])
+                        tmpdataset[variable] = np.append(tmpdataset[variable],tmpvar[mask])     
+                    os.remove(subsetfile)
+                    '''
+        if lon != None:
+            # I will also add the distance from the center point
+            tmpdataset['pointLon'] = np.array(lon) 
+            tmpdataset['pointLat'] = np.array(lat) 
+            tmpdataset['radius_km'] = np.array(radius_km) 
+
+
+        pdb.set_trace()
+
+        aggdata[datasetid] = tmpdataset.copy()
+        
+            
+    return aggdata
+
+
+
+
+if __name__ == "__main__":
+
+    ''' The Inputs are
+        1.  location,
+        2.  radius
+        3.  Time range
+        4.  Output file string
+    '''
+
+    outstring = 'PorterRanch'
+
+    datasetidsandvariables={}
+    datasetidsandvariables['AIRS2RET.7.0'] = ['CH4_total_column','CH4VMRLevStd','pressStd']
+
+
+
+    # Begin and End Date
+    begin_date = '2002.09.06'
+    end_date = '2002.09.07' # note it ends at 00 UTC on this date
+
+
+
+    # Porter Ranch location
+    lon=-118.555
+    lat=34.2961
+
+    # Radius
+    radius_km = 30.0 # km
+
+
+    aggdata = oagg(datasetidsandvariables,begin_date,end_date,lon,lat,radius_km)
+    #saggdata = oagg(datasetidsandvariables,begin_date,end_date)
+
+    
+     
+    myio.dict2h5(aggdata,outstring+'oagg.h5')
